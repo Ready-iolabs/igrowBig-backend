@@ -1,0 +1,273 @@
+const express = require("express");
+const router = express.Router();
+const { authenticateUser } = require("../middleware/authMiddleware");
+
+// Import controllers with all methods
+const { GetTenant, UpdateTenant } = require("../controllers/tenantController");
+
+const {
+  AddProduct,
+  GetProducts,
+  UpdateProduct,
+  DeleteProductImage,
+  DeleteProduct,
+} = require("../controllers/productController");
+
+const {
+  AddProductPage,
+  GetProductPage,
+  UpdateProductPage,
+  DeleteProductPage,
+} = require("../controllers/productPageController");
+const {
+  AddOpportunityPage,
+  GetOpportunityPage,
+  UpdateOpportunityPage,
+  DeleteOpportunityPage,
+} = require("../controllers/opportunityPageController");
+const {
+  AddJoinUsPage,
+  GetJoinUsPage,
+  UpdateJoinUsPage,
+  DeleteJoinUsPage,
+} = require("../controllers/joinusPageController");
+
+const {
+  AddContactUs,
+  UpdateContactUs,
+  GetAllContactUs,
+  DeleteContactUs,
+} = require("../controllers/contactusController");
+
+const {
+  GetSocialLinks,
+  UpsertSocialLinks,
+  DeleteSocialLinks,
+  GetDisclaimers,
+  UpsertDisclaimers,
+  DeleteDisclaimers,
+} = require("../controllers/footerController");
+const {
+  AddCategory,
+  UpdateCategory,
+  DeleteCategory,
+  GetCategories,
+} = require("../controllers/categoryController");
+const {
+  AddBlog,
+  GetBlogs,
+  UpdateBlog,
+  DeleteBlog,
+  AddOrUpdateBlogBanner,
+  AddBlogBanner,
+  UpdateBlogBanner,
+  DeleteBlogBanner,
+  
+} = require("../controllers/blogController");
+const {
+  AddBanner,
+  GetBanners,
+  UpdateBanner,
+  DeleteBanner,
+} = require("../controllers/bannerController");
+
+
+const {
+  UpdateSiteInfo,
+  GetSiteInfo,
+} = require("../controllers/siteInfoController");
+const {
+  UpdateAboutProductPage,
+  GetAboutProductPage,
+} = require("../controllers/aboutProductController");
+
+const {
+  AddHomePage,
+  UpdateHomePage,
+  GetHomePage,
+} = require("../controllers/homePageController");
+const {
+  AddSliderBanner,
+  GetSliderBanners,
+  UpdateSliderBanner,
+  DeleteSliderBanner,
+} = require("../controllers/sliderController");
+const {
+  AddSettings,
+  UpdateSettings,
+  GetSettings,
+} = require("../controllers/settingsController");
+const { GetTenantNotifications,
+  GetNotification,
+  MarkNotificationRead,
+  MarkAllNotificationsRead } = require("../controllers/tenantNotificationsController");
+const { body } = require("express-validator");
+
+
+// Core Tenant Routes
+router.get("/:tenantId", authenticateUser, GetTenant);
+router.put("/:tenantId", authenticateUser, UpdateTenant);
+
+
+//product page routes
+router.post("/:tenantId/product-page", authenticateUser, AddProductPage);
+router.get("/:tenantId/product-page", authenticateUser, GetProductPage);
+router.put("/:tenantId/product-page", authenticateUser, UpdateProductPage);
+router.delete("/:tenantId/product-page", authenticateUser, DeleteProductPage);
+
+//opportunity page routes
+router.post(
+  "/:tenantId/opportunity-page",
+  authenticateUser,
+  AddOpportunityPage
+);
+router.get("/:tenantId/opportunity-page", authenticateUser, GetOpportunityPage);
+router.put(
+  "/:tenantId/opportunity-page",
+  authenticateUser,
+  UpdateOpportunityPage
+);
+router.delete(
+  "/:tenantId/opportunity-page",
+  authenticateUser,
+  DeleteOpportunityPage
+);
+
+//join us page routes
+router.post("/:tenantId/joinus-page", authenticateUser, AddJoinUsPage);
+router.get("/:tenantId/joinus-page", authenticateUser, GetJoinUsPage);
+router.put("/:tenantId/joinus-page", authenticateUser, UpdateJoinUsPage);
+router.delete("/:tenantId/joinus-page", authenticateUser, DeleteJoinUsPage);
+
+//contact us page route
+router.post("/:tenantId/contactus", authenticateUser, AddContactUs);
+router.put("/:tenantId/contactus/:id", authenticateUser, UpdateContactUs);
+router.get("/:tenantId/contactus", authenticateUser, GetAllContactUs);
+router.delete("/:tenantId/contactus/:id", authenticateUser, DeleteContactUs);
+
+// Product Routes
+router.post("/:tenantId/products", authenticateUser, AddProduct);
+router.get("/:tenantId/products", authenticateUser, GetProducts);
+router.put("/:tenantId/products/:productId", authenticateUser, UpdateProduct);
+router.delete("/:tenantId/products/:productId", authenticateUser, DeleteProduct);
+router.delete(
+  "/:tenantId/products/:productId/images/:imageId",
+  authenticateUser,
+  DeleteProductImage
+);
+
+// Category Routes
+router.post("/:tenantId/categories", authenticateUser, AddCategory);
+router.get("/:tenantId/categories", authenticateUser, GetCategories);
+router.put(
+  "/:tenantId/categories/:categoryId",
+  authenticateUser,
+  UpdateCategory
+);
+router.delete(
+  "/:tenantId/categories/:categoryId",
+  authenticateUser,
+  DeleteCategory
+);
+
+// Blog Routes
+
+router.post("/:tenantId/blogs", authenticateUser, AddBlog);
+router.get("/:tenantId/blogs", authenticateUser, GetBlogs);
+router.put("/:tenantId/blogs/:blogId", authenticateUser, UpdateBlog);
+router.delete("/:tenantId/blogs/:blogId", authenticateUser, DeleteBlog);
+
+router.post("/:tenantId/blogs/:blogId/banners", authenticateUser, AddBlogBanner);
+router.put("/:tenantId/blogs/:blogId/banners/:bannerId", authenticateUser, UpdateBlogBanner);
+router.delete("/:tenantId/blogs/:blogId/banners/:bannerId", authenticateUser, DeleteBlogBanner);// Add or update a banner for a blog
+
+// Banner Routes
+router.post("/:tenantId/banners", authenticateUser, AddBanner);
+router.get("/:tenantId/banners", authenticateUser, GetBanners);
+router.put("/:tenantId/banners/:bannerId", authenticateUser, UpdateBanner);
+router.delete("/:tenantId/banners/:bannerId", authenticateUser, DeleteBanner);
+
+
+
+// Footer Social Links Routes
+router.get("/:tenantId/footer/social-links",authenticateUser, GetSocialLinks); 
+router.post("/:tenantId/footer/social-links",authenticateUser, UpsertSocialLinks); 
+router.delete("/:tenantId/footer/social-links",authenticateUser, DeleteSocialLinks); 
+
+// Footer Disclaimers Routes
+router.get("/:tenantId/footer/disclaimers",authenticateUser, GetDisclaimers); 
+router.post("/:tenantId/footer/disclaimers",authenticateUser, UpsertDisclaimers); 
+router.delete("/:tenantId/footer/disclaimers",authenticateUser, DeleteDisclaimers); 
+
+
+
+
+// About Product Page Routes
+router.put(
+  "/:tenantId/about-product-page",
+  authenticateUser,
+  UpdateAboutProductPage
+);
+router.get(
+  "/:tenantId/about-product-page",
+  authenticateUser,
+  GetAboutProductPage
+);
+
+
+
+// Home Page Routes
+router.post("/:tenantId/home-page", authenticateUser, AddHomePage);
+router.put("/:tenantId/home-page", authenticateUser, UpdateHomePage);
+router.get("/:tenantId/home-page", authenticateUser, GetHomePage);
+
+// Slider Banner Routes
+router.post("/:tenantId/slider-banners", authenticateUser, AddSliderBanner);
+router.get("/:tenantId/slider-banners", authenticateUser, GetSliderBanners);
+router.put(
+  "/:tenantId/slider-banners/:bannerId",
+  authenticateUser,
+  UpdateSliderBanner
+);
+router.delete(
+  "/:tenantId/slider-banners/:bannerId",
+  authenticateUser,
+  DeleteSliderBanner
+);
+
+// Settings Routes
+router.post("/:tenantId/settings", authenticateUser, AddSettings);
+router.put("/:tenantId/settings", authenticateUser, UpdateSettings);
+router.get("/:tenantId/settings", authenticateUser, GetSettings);
+
+// Site Info Routes
+router.put("/:tenantId/site-info", authenticateUser, UpdateSiteInfo);
+router.get("/:tenantId/site-info", authenticateUser, GetSiteInfo);
+
+
+
+// Get all notifications for authenticated tenant
+router.get("/:tenantId/notifications", GetTenantNotifications);
+
+
+// Get specific notification
+router.get(
+  "/notifications/:notificationId", 
+  authenticateUser, 
+  GetNotification
+);
+
+// Mark a notification as read
+router.post(
+  "/notifications/read",
+  MarkNotificationRead
+);
+
+// Mark all notifications as read
+router.post(
+  "/notifications/read-all",
+  authenticateUser,
+  MarkAllNotificationsRead
+);
+
+module.exports = router;
