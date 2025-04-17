@@ -1,19 +1,17 @@
-require("dotenv").config();
+
 const nodemailer = require("nodemailer");
 
-console.log("SMTP HOST:", process.env.SMTP_HOST); // debug
-console.log("SMTP PORT:", process.env.SMTP_PORT);
-console.log("SMTP USER:", process.env.SMTP_USER);
+
 
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: true,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+    host: 'smtp.hostinger.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: 'hello@arbilo.com',  // replace with your actual email
+      pass: 'Readyio@986',       // replace with your actual password
+    },
+  });
 
 // Verify transporter on startup
 transporter.verify((error, success) => {

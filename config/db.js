@@ -212,9 +212,13 @@ const mysql = require("mysql");
 
 class Database {
   constructor() {
-    this.host = "localhost";
-    this.username = "root";
-    this.password = "";
+    // this.host = "localhost";
+    // this.username = "root";
+    // this.password = "";
+    // this.database = "db_igrowbig";
+    this.host = "139.59.3.58";
+    this.username = "myuser";
+    this.password = "Radiolabs@123";
     this.database = "db_igrowbig";
     this.conn = mysql.createConnection({
       host: this.host,
