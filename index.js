@@ -13,7 +13,23 @@ const publicTenantRoutes  = require("./routes/publicTenantRoutes")
 const detectSubdomain = require('./middleware/subdomain.js');
 const newsletterRoutes = require("./routes/newsletterRoutes"); 
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+const allowedOrigins = [
+  "http://localhost:5173", // Development
+  "http://stage.begrat.com", // Stage
+  "https://begrat.com" // Production (optional)
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

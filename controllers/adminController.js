@@ -11,10 +11,11 @@ const fs = require("fs"); // Sync methods: existsSync, mkdirSync
 const { uploadToS3, deleteFromS3 } = require("../services/awsS3");
 const slugify = require("slugify");
 const JWT_SECRET = process.env.JWT_SECRET || "123456";
-const { DNS_STATUS_ENUM } = require('../config/constants');
-const { verifyTenantDomain } = require('../services/dnsService');
-const { sendDomainNotification } = require('../config/email');
-const { sendWebhook } = require('../services/webhookService');
+const { DNS_STATUS_ENUM } = require("../config/constants");
+const { verifyTenantDomain ,addSubdomain } = require("../services/dnsService");
+const { sendDomainNotification } = require("../config/email");
+const { sendWebhook } = require("../services/webhookService");
+
 
 // Configure multer for file handling - similar to product controller
 const storage = multer.diskStorage({
@@ -251,60 +252,50 @@ const AdminchangePassword = async (req, res) => {
     });
   }
 };
-
-// Create User
+//Create User
 // const CreateUser = [
 //   body("email").isEmail().withMessage("Please enter a valid email address"),
 //   body("name").notEmpty().withMessage("Name is required"),
-//   body("subscription_plan")
-//     .isIn(["yearly", "monthly"])
-//     .withMessage("Subscription plan must be 'yearly' or 'monthly'")
-//     .optional({ nullable: true }),
 //   body("template_id")
-//     .isInt({ min: 1 })
-//     .withMessage("Template ID must be a positive integer")
-//     .optional({ nullable: true }),
+//     .isInt({ min: 1, max: 3 })
+//     .withMessage("Template ID must be between 1 and 3")
+//     .optional(),
 //   async (req, res) => {
 //     try {
 //       const errors = validationResult(req);
-//       if (!errors.isEmpty())
+//       if (!errors.isEmpty()) {
 //         return res.status(400).json({ errors: errors.array() });
+//       }
 
-//       const {
-//         name,
-//         email,
-//         subscription_plan = "yearly",
-//         template_id = 1,
-//       } = req.body;
-//       if (!name || !email) {
+//       const { name, email, template_id = 1 } = req.body;
+//       const normalizedEmail = email.trim().toLowerCase();
+
+//       // Check if email exists
+//       const existingUser = await db.selectAll("tbl_users", "*", "email = ?", [
+//         normalizedEmail,
+//       ]);
+//       if (existingUser.length > 0) {
 //         return res.status(400).json({
-//           error: "MISSING_FIELDS",
-//           message: "Name and email are required",
+//           error: "EMAIL_EXISTS",
+//           message: "Email already exists",
 //         });
 //       }
 
-//       const normalizedEmail = email.trim().toLowerCase();
-//       const existingUser = await db.select("tbl_users", "*", "email = ?", [
-//         normalizedEmail,
-//       ]);
-//       if (normalizeResult(existingUser)) {
-//         return res
-//           .status(400)
-//           .json({ error: "EMAIL_EXISTS", message: "Email already exists" });
+//       // Generate unique slug
+//       let baseSlug = slugify(name, { lower: true, strict: true });
+//       let slug = baseSlug;
+//       let slugCount = 0;
+
+//       while (true) {
+//         const slugExists = await db.selectAll("tbl_tenants", "id", "slug = ?", [
+//           slug,
+//         ]);
+//         if (slugExists.length === 0) break;
+//         slugCount++;
+//         slug = `${baseSlug}-${slugCount}`;
 //       }
 
-//       const tenantData = {
-//         store_name: `${name}'s Store`,
-//         template_id,
-//         user_id: null,
-//         domain: `${normalizedEmail.split("@")[0]}.example.com`,
-//         site_title: `${name}'s Site`,
-//         site_description: `Store for ${name}`,
-//         is_live: 0,
-//       };
-//       const tenantResult = await db.insert("tbl_tenants", tenantData);
-//       const newTenantId = tenantResult.insert_id;
-
+//       // Generate password
 //       const generatedPassword = generator.generate({
 //         length: 10,
 //         numbers: true,
@@ -313,59 +304,97 @@ const AdminchangePassword = async (req, res) => {
 //         lowercase: true,
 //       });
 //       const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+//       // Insert tenant
+//       const tenantData = {
+//         store_name: `${name}'s Store`,
+//         template_id,
+//         user_id: null,
+//         domain: `${slug}.localhost`, // Use localhost for development
+//         site_title: `${name}'s Site`,
+//         site_description: `Store for ${name}`,
+//         is_live: 0,
+//         created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+//         slug,
+//       };
+//       const tenantResult = await db.insert("tbl_tenants", tenantData);
+//       const tenantId = tenantResult.insert_id;
+
+//       // Insert user
 //       const userData = {
 //         name,
 //         email: normalizedEmail,
-//         password_hash: hashedPassword,
-//         tenant_id: newTenantId,
-//         subscription_plan,
-//         subscription_status: "1",
+//         tenant_id: tenantId,
 //         template_id,
+//         password_hash: hashedPassword,
+//         created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+//         subscription_status: 1,
 //       };
 //       const userResult = await db.insert("tbl_users", userData);
+//       const userId = userResult.insert_id;
 
-//       await db.update(
-//         "tbl_tenants",
-//         { user_id: userResult.insert_id },
-//         "id = ?",
-//         [newTenantId]
-//       );
-//       await sendWelcomeEmail(
-//         normalizedEmail,
-//         {
-//           name,
-//           email: normalizedEmail,
-//           password: generatedPassword,
-//           subscription_plan,
-//           subscription_status: "active",
-//           template_id,
-//         },
-//         true
-//       );
+//       // Update tenant with user_id
+//       await db.update("tbl_tenants", { user_id: userId }, "id = ?", [tenantId]);
+
+//       // Insert settings
+//       const settingsData = {
+//         tenant_id: tenantId,
+//         domain_type: "path", // Use path-based routing for simplicity
+//         sub_domain: slug,
+//         primary_domain_name: "localhost:5173", // Update for production
+//         website_link: `http://localhost:5173/${slug}`,
+//         first_name: name.split(" ")[0] || name,
+//         last_name: name.split(" ")[1] || "",
+//         email_id: normalizedEmail,
+//         mobile: "",
+//         address: "",
+//         publish_on_site: 0,
+//         skype: "",
+//         site_name: `${name}'s Site`,
+//         site_logo_url: "",
+//         nht_website_link: "https://example.com",
+//         nht_store_link: "https://example.com",
+//         nht_joining_link: "https://example.com",
+//         created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+//         updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+//         dns_status: "pending",
+//       };
+//       await db.insert("tbl_settings", settingsData);
+
+//       // Send welcome email
+//       await sendWelcomeEmail(normalizedEmail, {
+//         name,
+//         email: normalizedEmail,
+//         password: generatedPassword,
+//         template_id,
+//         login_url: "http://localhost:5173/backoffice-login",
+//         store_url: `http://localhost:5173/${slug}`,
+//         subscription_status: "Active",
+//         subscription_plan: "monthly",
+//       });
 
 //       res.status(201).json({
-//         message: "User created successfully",
-//         user_id: userResult.insert_id,
-//         tenant_id: newTenantId,
+//         user_id: userId,
+//         tenant_id: tenantId,
+//         tenant_slug: slug,
 //         template_id,
+//         email: normalizedEmail,
+//         name,
+//         store_url: `http://localhost:5173/${slug}`,
 //       });
 //     } catch (error) {
 //       console.error("CreateUser Error:", error);
-//       res.status(500).json({
-//         error: "SERVER_ERROR",
-//         message: "Failed to create user",
-//         details: error.message,
-//       });
+//       res.status(500).json({ error: "SERVER_ERROR", message: error.message });
 //     }
 //   },
 // ];
-// Create User
+
 const CreateUser = [
-  body("email").isEmail().withMessage("Please enter a valid email address"),
-  body("name").notEmpty().withMessage("Name is required"),
-  body("template_id")
+  body('email').isEmail().withMessage('Please enter a valid email address'),
+  body('name').notEmpty().withMessage('Name is required'),
+  body('template_id')
     .isInt({ min: 1, max: 3 })
-    .withMessage("Template ID must be between 1 and 3")
+    .withMessage('Template ID must be between 1 and 3')
     .optional(),
   async (req, res) => {
     try {
@@ -378,35 +407,33 @@ const CreateUser = [
       const normalizedEmail = email.trim().toLowerCase();
 
       // Check if email exists
-      const existingUser = await db.selectAll(
-        "tbl_users",
-        "*",
-        "email = ?",
-        [normalizedEmail]
-      );
+      const existingUser = await db.select('tbl_users', '*', 'email = ?', [normalizedEmail]);
       if (existingUser.length > 0) {
         return res.status(400).json({
-          error: "EMAIL_EXISTS",
-          message: "Email already exists",
+          error: 'EMAIL_EXISTS',
+          message: 'Email already exists',
         });
       }
 
-      // Generate unique slug
+      // Generate unique slug and subdomain
       let baseSlug = slugify(name, { lower: true, strict: true });
       let slug = baseSlug;
+      let subdomain = baseSlug;
       let slugCount = 0;
 
       while (true) {
-        const slugExists = await db.selectAll(
-          "tbl_tenants",
-          "id",
-          "slug = ?",
-          [slug]
-        );
-        if (slugExists.length === 0) break;
+        const [slugExists, subdomainExists] = await Promise.all([
+          db.select('tbl_tenants', 'id', 'slug = ?', [slug]),
+          db.select('tbl_settings', 'id', 'sub_domain = ?', [subdomain]),
+        ]);
+        if (slugExists.length === 0 && subdomainExists.length === 0) break;
         slugCount++;
         slug = `${baseSlug}-${slugCount}`;
+        subdomain = `${baseSlug}-${slugCount}`;
       }
+
+      // Create subdomain in GoDaddy DNS
+      await addSubdomain(subdomain);
 
       // Generate password
       const generatedPassword = generator.generate({
@@ -423,14 +450,14 @@ const CreateUser = [
         store_name: `${name}'s Store`,
         template_id,
         user_id: null,
-        domain: `${slug}.localhost`, // Use localhost for development
+        domain: `${subdomain}.begrat.com`,
         site_title: `${name}'s Site`,
         site_description: `Store for ${name}`,
         is_live: 0,
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        created_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
         slug,
       };
-      const tenantResult = await db.insert("tbl_tenants", tenantData);
+      const tenantResult = await db.insert('tbl_tenants', tenantData);
       const tenantId = tenantResult.insert_id;
 
       // Insert user
@@ -440,39 +467,43 @@ const CreateUser = [
         tenant_id: tenantId,
         template_id,
         password_hash: hashedPassword,
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        created_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
         subscription_status: 1,
       };
-      const userResult = await db.insert("tbl_users", userData);
+      const userResult = await db.insert('tbl_users', userData);
       const userId = userResult.insert_id;
 
       // Update tenant with user_id
-      await db.update("tbl_tenants", { user_id: userId }, "id = ?", [tenantId]);
+      await db.update('tbl_tenants', { user_id: userId }, 'id = ?', [tenantId]);
+
+      // Use request protocol for URLs
+      const protocol = req.protocol || 'http';
+      const websiteLink = `${protocol}://${subdomain}.begrat.com`;
 
       // Insert settings
       const settingsData = {
         tenant_id: tenantId,
-        domain_type: "path", // Use path-based routing for simplicity
-        sub_domain: slug,
-        primary_domain_name: "localhost:5173", // Update for production
-        website_link: `http://localhost:5173/${slug}`,
-        first_name: name.split(" ")[0] || name,
-        last_name: name.split(" ")[1] || "",
+        domain_type: 'sub_domain',
+        sub_domain: subdomain,
+        primary_domain_name: 'begrat.com',
+        website_link: websiteLink,
+        first_name: name.split(' ')[0] || name,
+        last_name: name.split(' ')[1] || '',
         email_id: normalizedEmail,
-        mobile: "",
-        address: "",
+        mobile: '',
+        address: '',
         publish_on_site: 0,
-        skype: "",
+        skype: '',
         site_name: `${name}'s Site`,
-        site_logo_url: "",
-        nht_website_link: "https://example.com",
-        nht_store_link: "https://example.com",
-        nht_joining_link: "https://example.com",
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-        updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-        dns_status: "pending",
+        site_logo_url: '',
+        nht_website_link: `${protocol}://example.com`,
+        nht_store_link: `${protocol}://example.com`,
+        nht_joining_link: `${protocol}://example.com`,
+        created_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        dns_status: 'verified',
       };
-      await db.insert("tbl_settings", settingsData);
+      await db.insert('tbl_settings', settingsData);
 
       // Send welcome email
       await sendWelcomeEmail(normalizedEmail, {
@@ -480,10 +511,10 @@ const CreateUser = [
         email: normalizedEmail,
         password: generatedPassword,
         template_id,
-        login_url: "http://localhost:5173/backoffice-login",
-        store_url: `http://localhost:5173/${slug}`,
-        subscription_status: "Active",
-        subscription_plan: "monthly",
+        login_url: `${protocol}://begrat.com/backoffice-login`,
+        store_url: websiteLink,
+        subscription_status: 'Active',
+        subscription_plan: 'monthly',
       });
 
       res.status(201).json({
@@ -493,63 +524,269 @@ const CreateUser = [
         template_id,
         email: normalizedEmail,
         name,
-        store_url: `http://localhost:5173/${slug}`,
+        store_url: websiteLink,
       });
     } catch (error) {
-      console.error("CreateUser Error:", error);
-      res.status(500).json({ error: "SERVER_ERROR", message: error.message });
+      console.error('CreateUser Error:', error);
+      res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
     }
   },
-];;
-
+];
 
 const GetTenantSettings = [
   async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const settings = await db.select('tbl_settings', '*', 'tenant_id = ?', [tenantId]);
+      const settings = await db.select("tbl_settings", "*", "tenant_id = ?", [
+        tenantId,
+      ]);
       const settingsData = normalizeResult(settings);
 
       if (!settingsData) {
         const defaultSettings = {
           tenant_id: tenantId,
-          domain_type: 'sub_domain',
-          primary_domain_name: 'begrat.com',
-          website_link: 'https://begrat.com',
-          first_name: '',
-          last_name: '',
-          email_id: '',
+          domain_type: "sub_domain",
+          primary_domain_name: "begrat.com",
+          website_link: "https://begrat.com",
+          first_name: "",
+          last_name: "",
+          email_id: "",
           mobile: null,
-          address: 'Not set',
+          address: "Not set",
           publish_on_site: 0,
           skype: null,
-          site_name: 'Default Site',
+          site_name: "Default Site",
           site_logo_url: null,
           nht_website_link: null,
           nht_store_link: null,
           nht_joining_link: null,
-          dns_status: 'pending',
+          dns_status: "pending",
         };
         return res.status(200).json({
-          message: 'No settings found, returning default settings',
+          message: "No settings found, returning default settings",
           settings: defaultSettings,
         });
       }
 
       if (!DNS_STATUS_ENUM.includes(settingsData.dns_status)) {
-        settingsData.dns_status = 'pending';
+        settingsData.dns_status = "pending";
       }
 
       res.status(200).json({
-        message: 'Tenant settings retrieved successfully',
+        message: "Tenant settings retrieved successfully",
         settings: settingsData,
       });
     } catch (error) {
-      console.error('GetTenantSettings Error:', error);
-      res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to retrieve settings' });
+      console.error("GetTenantSettings Error:", error);
+      res
+        .status(500)
+        .json({
+          error: "SERVER_ERROR",
+          message: "Failed to retrieve settings",
+        });
     }
   },
 ];
+
+// const UpdateTenantSettings = [
+//   upload.fields([{ name: "site_logo", maxCount: 1 }]),
+//   body("domain_type")
+//     .optional()
+//     .isIn(["sub_domain", "custom_domain"])
+//     .withMessage("Domain type must be 'sub_domain' or 'custom_domain'"),
+//   body("primary_domain_name")
+//     .optional()
+//     .matches(/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/)
+//     .withMessage("Invalid domain name"),
+//   body("sub_domain")
+//     .optional()
+//     .matches(/^[a-zA-Z0-9-]+$/)
+//     .withMessage("Sub-domain can only contain letters, numbers, and hyphens"),
+//   body("first_name")
+//     .optional()
+//     .notEmpty()
+//     .withMessage("First name cannot be empty"),
+//   body("last_name")
+//     .optional()
+//     .notEmpty()
+//     .withMessage("Last name cannot be empty"),
+//   body("email_id").optional().isEmail().withMessage("Invalid email address"),
+//   body("address").optional().notEmpty().withMessage("Address cannot be empty"),
+//   body("site_name")
+//     .optional()
+//     .notEmpty()
+//     .withMessage("Site name cannot be empty"),
+//   body("mobile")
+//     .optional()
+//     .matches(/^\+?[1-9]\d{1,14}$/)
+//     .withMessage("Invalid mobile number"),
+//   async (req, res) => {
+//     try {
+//       const errors = validationResult(req);
+//       if (!errors.isEmpty()) {
+//         return res.status(400).json({ errors: errors.array() });
+//       }
+
+//       const { tenantId } = req.params;
+//       const {
+//         domain_type,
+//         sub_domain,
+//         primary_domain_name,
+//         first_name,
+//         last_name,
+//         email_id,
+//         mobile,
+//         address,
+//         skype,
+//         site_name,
+//         nht_website_link,
+//         nht_store_link,
+//         nht_joining_link,
+//       } = req.body;
+
+//       // Normalize tenantId to ensure correct type (string or integer based on DB)
+//       const normalizedTenantId = parseInt(tenantId, 10);
+
+//       // Check for existing settings with explicit type casting
+//       const existingSettings = await db.select(
+//         "tbl_settings",
+//         "*",
+//         "tenant_id = ?",
+//         [normalizedTenantId]
+//       );
+//       const currentSettings =
+//         existingSettings.length > 0 ? existingSettings[0] : {};
+
+//       let dnsStatus = currentSettings.dns_status || "pending";
+//       let domain = "";
+
+//       if (
+//         domain_type === "custom_domain" &&
+//         primary_domain_name &&
+//         primary_domain_name !== currentSettings.primary_domain_name
+//       ) {
+//         const dnsResult = await verifyTenantDomain(
+//           normalizedTenantId,
+//           primary_domain_name
+//         );
+//         dnsStatus = dnsResult.status;
+//         domain = primary_domain_name;
+//       } else if (domain_type === "sub_domain" && sub_domain) {
+//         domain = `${sub_domain}.begrat.com`;
+//         dnsStatus = "verified"; // Wildcard DNS ensures subdomains are verified
+//       }
+
+//       const website_link =
+//         domain_type === "custom_domain" && primary_domain_name
+//           ? `https://${primary_domain_name}`
+//           : domain_type === "sub_domain" && sub_domain
+//           ? `https://${sub_domain}.begrat.com`
+//           : currentSettings.website_link || "https://begrat.com";
+
+//       const settingsData = {
+//         domain_type: domain_type || currentSettings.domain_type || "sub_domain",
+//         sub_domain:
+//           domain_type === "sub_domain"
+//             ? sub_domain || currentSettings.sub_domain
+//             : null,
+//         primary_domain_name:
+//           primary_domain_name ||
+//           currentSettings.primary_domain_name ||
+//           "begrat.com",
+//         website_link,
+//         dns_status: dnsStatus,
+//         first_name: first_name || currentSettings.first_name || "",
+//         last_name: last_name || currentSettings.last_name || "",
+//         email_id: email_id || currentSettings.email_id || "",
+//         mobile: mobile || currentSettings.mobile || null,
+//         address: address || currentSettings.address || "",
+//         skype: skype || currentSettings.skype || null,
+//         site_name: site_name || currentSettings.site_name || "",
+//         nht_website_link:
+//           nht_website_link || currentSettings.nht_website_link || null,
+//         nht_store_link:
+//           nht_store_link || currentSettings.nht_store_link || null,
+//         nht_joining_link:
+//           nht_joining_link || currentSettings.nht_joining_link || null,
+//         updated_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+//       };
+
+//       if (req.files && req.files["site_logo"]) {
+//         const logoFile = req.files["site_logo"][0];
+//         const folder = `settings/tenant_${normalizedTenantId}`;
+//         const fileObject = {
+//           path: logoFile.path, // Use path instead of buffer
+//           filename: `${Date.now()}-${logoFile.originalname}`,
+//           mimetype: logoFile.mimetype,
+//         };
+
+//         if (currentSettings.site_logo_url) {
+//           await deleteFromS3(currentSettings.site_logo_url);
+//         }
+
+//         settingsData.site_logo_url = await uploadToS3(fileObject, folder);
+//       }
+//       // Upsert logic: Update if exists, insert if not
+//       if (existingSettings.length > 0) {
+//         await db.update("tbl_settings", settingsData, "tenant_id = ?", [
+//           normalizedTenantId,
+//         ]);
+//       } else {
+//         settingsData.tenant_id = normalizedTenantId;
+//         settingsData.created_at = new Date()
+//           .toISOString()
+//           .slice(0, 19)
+//           .replace("T", " ");
+//         try {
+//           await db.insert("tbl_settings", settingsData);
+//         } catch (insertError) {
+//           if (insertError.code === "ER_DUP_ENTRY") {
+//             // Retry update in case of race condition
+//             await db.update("tbl_settings", settingsData, "tenant_id = ?", [
+//               normalizedTenantId,
+//             ]);
+//           } else {
+//             throw insertError;
+//           }
+//         }
+//       }
+
+//       // Fetch updated settings
+//       const updatedSettings = await db.select(
+//         "tbl_settings",
+//         "*",
+//         "tenant_id = ?",
+//         [normalizedTenantId]
+//       );
+//       const normalizedSettings =
+//         updatedSettings.length > 0 ? updatedSettings[0] : settingsData;
+
+//       // Send notifications
+//       const tenant = await db.select("tbl_tenants", "*", "id = ?", [
+//         normalizedTenantId,
+//       ]);
+//       if (domain) {
+//         await sendDomainNotification(
+//           tenant[0]?.email || email_id,
+//           domain,
+//           dnsStatus
+//         );
+//         await sendWebhook(normalizedTenantId, domain, dnsStatus);
+//       }
+
+//       res.status(200).json({
+//         message: "Settings updated successfully",
+//         settings: normalizedSettings,
+//       });
+//     } catch (error) {
+//       console.error("UpdateTenantSettings Error:", error);
+//       res
+//         .status(500)
+//         .json({ error: "SERVER_ERROR", message: "Failed to update settings" });
+//     }
+//   },
+// ];
+
 
 const UpdateTenantSettings = [
   upload.fields([{ name: 'site_logo', maxCount: 1 }]),
@@ -598,40 +835,71 @@ const UpdateTenantSettings = [
         nht_joining_link,
       } = req.body;
 
-      // Normalize tenantId to ensure correct type (string or integer based on DB)
       const normalizedTenantId = parseInt(tenantId, 10);
 
-      // Check for existing settings with explicit type casting
-      const existingSettings = await db.select(
-        'tbl_settings',
-        '*',
-        'tenant_id = ?',
-        [normalizedTenantId]
-      );
+      // Fetch existing settings
+      const existingSettings = await db.select('tbl_settings', '*', 'tenant_id = ?', [normalizedTenantId]);
       const currentSettings = existingSettings.length > 0 ? existingSettings[0] : {};
 
       let dnsStatus = currentSettings.dns_status || 'pending';
       let domain = '';
 
+      // Use request protocol
+      const protocol = req.protocol || 'http';
+
+      // Handle subdomain update
+      if (domain_type === 'sub_domain' && sub_domain && sub_domain !== currentSettings.sub_domain) {
+        // Check subdomain uniqueness
+        const subdomainExists = await db.select(
+          'tbl_settings',
+          'id',
+          'sub_domain = ? AND tenant_id != ?',
+          [sub_domain, normalizedTenantId]
+        );
+        if (subdomainExists.length > 0) {
+          return res.status(400).json({ error: 'SUBDOMAIN_EXISTS', message: 'Subdomain already taken' });
+        }
+
+        // Update DNS records
+        await addSubdomain(sub_domain);
+        domain = `${sub_domain}.begrat.com`;
+        dnsStatus = 'verified';
+      }
+
+      // Handle custom domain update
       if (domain_type === 'custom_domain' && primary_domain_name && primary_domain_name !== currentSettings.primary_domain_name) {
+        // Check domain uniqueness
+        const domainExists = await db.select(
+          'tbl_settings',
+          'id',
+          'primary_domain_name = ? AND tenant_id != ?',
+          [primary_domain_name, normalizedTenantId]
+        );
+        if (domainExists.length > 0) {
+          return res.status(400).json({ error: 'DOMAIN_EXISTS', message: 'Domain already taken' });
+        }
+
+        // Verify DNS
         const dnsResult = await verifyTenantDomain(normalizedTenantId, primary_domain_name);
         dnsStatus = dnsResult.status;
         domain = primary_domain_name;
-      } else if (domain_type === 'sub_domain' && sub_domain) {
-        domain = `${sub_domain}.begrat.com`;
-        dnsStatus = 'verified'; // Wildcard DNS ensures subdomains are verified
+      }
+
+      // Update tenant domain if changed
+      if (domain) {
+        await db.update('tbl_tenants', { domain }, 'id = ?', [normalizedTenantId]);
       }
 
       const website_link = domain_type === 'custom_domain' && primary_domain_name
-        ? `https://${primary_domain_name}`
+        ? `${protocol}://${primary_domain_name}`
         : domain_type === 'sub_domain' && sub_domain
-        ? `https://${sub_domain}.begrat.com`
-        : currentSettings.website_link || 'https://begrat.com';
+        ? `${protocol}://${sub_domain}.begrat.com`
+        : currentSettings.website_link || `${protocol}://begrat.com`;
 
       const settingsData = {
         domain_type: domain_type || currentSettings.domain_type || 'sub_domain',
         sub_domain: domain_type === 'sub_domain' ? sub_domain || currentSettings.sub_domain : null,
-        primary_domain_name: primary_domain_name || currentSettings.primary_domain_name || 'begrat.com',
+        primary_domain_name: domain_type === 'custom_domain' ? primary_domain_name || currentSettings.primary_domain_name : 'begrat.com',
         website_link,
         dns_status: dnsStatus,
         first_name: first_name || currentSettings.first_name || '',
@@ -647,22 +915,24 @@ const UpdateTenantSettings = [
         updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
       };
 
+      // Handle logo upload
       if (req.files && req.files['site_logo']) {
         const logoFile = req.files['site_logo'][0];
         const folder = `settings/tenant_${normalizedTenantId}`;
         const fileObject = {
-          path: logoFile.path,  // Use path instead of buffer
+          path: logoFile.path,
           filename: `${Date.now()}-${logoFile.originalname}`,
           mimetype: logoFile.mimetype,
         };
-        
+
         if (currentSettings.site_logo_url) {
           await deleteFromS3(currentSettings.site_logo_url);
         }
-        
+
         settingsData.site_logo_url = await uploadToS3(fileObject, folder);
       }
-      // Upsert logic: Update if exists, insert if not
+
+      // Upsert settings
       if (existingSettings.length > 0) {
         await db.update('tbl_settings', settingsData, 'tenant_id = ?', [normalizedTenantId]);
       } else {
@@ -672,7 +942,6 @@ const UpdateTenantSettings = [
           await db.insert('tbl_settings', settingsData);
         } catch (insertError) {
           if (insertError.code === 'ER_DUP_ENTRY') {
-            // Retry update in case of race condition
             await db.update('tbl_settings', settingsData, 'tenant_id = ?', [normalizedTenantId]);
           } else {
             throw insertError;
@@ -681,12 +950,7 @@ const UpdateTenantSettings = [
       }
 
       // Fetch updated settings
-      const updatedSettings = await db.select(
-        'tbl_settings',
-        '*',
-        'tenant_id = ?',
-        [normalizedTenantId]
-      );
+      const updatedSettings = await db.select('tbl_settings', '*', 'tenant_id = ?', [normalizedTenantId]);
       const normalizedSettings = updatedSettings.length > 0 ? updatedSettings[0] : settingsData;
 
       // Send notifications
@@ -702,7 +966,7 @@ const UpdateTenantSettings = [
       });
     } catch (error) {
       console.error('UpdateTenantSettings Error:', error);
-      res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to update settings' });
+      res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
     }
   },
 ];
@@ -715,25 +979,27 @@ const GetDomainLogs = async (req, res) => {
     const normalizedTenantId = parseInt(tenantId, 10);
     if (isNaN(normalizedTenantId) || normalizedTenantId <= 0) {
       return res.status(400).json({
-        error: 'INVALID_TENANT_ID',
-        message: 'Tenant ID must be a valid positive integer',
+        error: "INVALID_TENANT_ID",
+        message: "Tenant ID must be a valid positive integer",
       });
     }
 
     const logs = await db.select(
-      'tbl_domain_logs',
-      'id, tenant_id, domain, status, message, created_at',
-      'tenant_id = ? ORDER BY created_at DESC',
+      "tbl_domain_logs",
+      "id, tenant_id, domain, status, message, created_at",
+      "tenant_id = ? ORDER BY created_at DESC",
       [normalizedTenantId]
     );
 
     res.status(200).json({
-      message: 'Logs retrieved successfully',
+      message: "Logs retrieved successfully",
       logs,
     });
   } catch (error) {
-    console.error('GetDomainLogs Error:', error);
-    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to retrieve logs' });
+    console.error("GetDomainLogs Error:", error);
+    res
+      .status(500)
+      .json({ error: "SERVER_ERROR", message: "Failed to retrieve logs" });
   }
 };
 
@@ -951,7 +1217,7 @@ const GetAllTenantUsers = [
       }
 
       // Collect all tenant_ids to fetch their website links in one query
-      const tenantIds = allUsers.map(user => user.tenant_id);
+      const tenantIds = allUsers.map((user) => user.tenant_id);
       const placeholders = tenantIds.map(() => "?").join(",");
 
       const settings = await db.queryAll(
@@ -961,20 +1227,22 @@ const GetAllTenantUsers = [
 
       // Create a map for quick lookup
       const tenantWebsiteMap = {};
-      settings.forEach(setting => {
+      settings.forEach((setting) => {
         tenantWebsiteMap[setting.tenant_id] = setting.website_link;
       });
 
       const userStats = {
         total: allUsers.length,
-        active: allUsers.filter(user => user.subscription_status === "1").length,
-        inactive: allUsers.filter(user => user.subscription_status === "0").length,
+        active: allUsers.filter((user) => user.subscription_status === "1")
+          .length,
+        inactive: allUsers.filter((user) => user.subscription_status === "0")
+          .length,
       };
 
       res.status(200).json({
         message: "Tenant users retrieved successfully",
         userStats,
-        users: allUsers.map(user => ({
+        users: allUsers.map((user) => ({
           id: user.id,
           tenant_id: user.tenant_id,
           name: user.name,
@@ -995,7 +1263,6 @@ const GetAllTenantUsers = [
     }
   },
 ];
-
 
 // Get All Tenant Messages
 const GetAllTenantMessages = [
@@ -1028,30 +1295,42 @@ const GetAllTenantMessages = [
   },
 ];
 
-
 // Delete Tenant Logo
 const DeleteTenantLogo = [
   async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const settings = await db.select("tbl_settings", "site_logo_url", "tenant_id = ?", [tenantId]);
+      const settings = await db.select(
+        "tbl_settings",
+        "site_logo_url",
+        "tenant_id = ?",
+        [tenantId]
+      );
       const settingsData = normalizeResult(settings);
 
       if (!settingsData || !settingsData.site_logo_url) {
-        return res.status(400).json({ error: "NO_LOGO", message: "No logo found for this tenant" });
+        return res
+          .status(400)
+          .json({ error: "NO_LOGO", message: "No logo found for this tenant" });
       }
 
       await deleteFromS3(settingsData.site_logo_url);
-      await db.update("tbl_settings", { site_logo_url: null }, "tenant_id = ?", [tenantId]);
+      await db.update(
+        "tbl_settings",
+        { site_logo_url: null },
+        "tenant_id = ?",
+        [tenantId]
+      );
 
       res.status(200).json({ message: "Logo deleted successfully" });
     } catch (error) {
       console.error("DeleteTenantLogo Error:", error);
-      res.status(500).json({ error: "SERVER_ERROR", message: "Failed to delete logo" });
+      res
+        .status(500)
+        .json({ error: "SERVER_ERROR", message: "Failed to delete logo" });
     }
   },
 ];
-
 
 // Create Category
 const CreateCategory = [
@@ -1371,7 +1650,6 @@ const GetAllTrainings = [
     }
   },
 ];
-
 
 // Update Training
 const UpdateTraining = [
