@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
   },
 });
 
-// Update the multer configuration in your controller file
+// Multer configuration
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for all files
@@ -56,13 +56,13 @@ const upload = multer({
   { name: "plan_document", maxCount: 1 },
 ]);
 
-// AddOpportunityPage
-const AddOpportunityPage = async (req, res) => {
+// Add or Update Opportunity Page
+const AddOrUpdateOpportunityPage = async (req, res) => {
   upload(req, res, async (err) => {
     if (err) return res.status(400).json({ error: "FILE_ERROR", message: err.message });
 
     const { tenantId } = req.params;
-    const { banner_content, welcome_message, page_content, header_title, video_section_link } = req.body;
+    const { banner_content, welcome_message, page_content, header_title, video_section_link, update_type } = req.body;
 
     if (!checkTenantAuth(req, tenantId)) {
       return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
@@ -70,46 +70,75 @@ const AddOpportunityPage = async (req, res) => {
 
     try {
       const folder = `opportunity/tenant_${tenantId}`;
-      const [existingPage] = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+      // Fetch existing page, handle non-array or null result
+      const result = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+      const existingPage = Array.isArray(result) ? result[0] : result || null;
+
+      // Helper function to safely delete local file
+      const safeUnlink = (filePath) => {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (unlinkErr) {
+          console.warn(`Failed to delete file ${filePath}: ${unlinkErr.message}`);
+        }
+      };
 
       let bannerImageUrl = existingPage?.banner_image_url || null;
       if (req.files?.["banner_image"]) {
         if (existingPage?.banner_image_url) await deleteFromS3(existingPage.banner_image_url);
         bannerImageUrl = await uploadToS3(req.files["banner_image"][0], folder);
-        fs.unlinkSync(req.files["banner_image"][0].path);
+        safeUnlink(req.files["banner_image"][0].path);
       }
 
       let pageImageUrl = existingPage?.page_image_url || null;
       if (req.files?.["page_image"]) {
         if (existingPage?.page_image_url) await deleteFromS3(existingPage.page_image_url);
         pageImageUrl = await uploadToS3(req.files["page_image"][0], folder);
-        fs.unlinkSync(req.files["page_image"][0].path);
+        safeUnlink(req.files["page_image"][0].path);
       }
 
       let videoSectionUrl = video_section_link || existingPage?.video_section_link || null;
       if (req.files?.["video_section"]) {
-        if (existingPage?.video_section_link && !video_section_link) {
+        if (existingPage?.video_section_link && !video_section_link && !existingPage.video_section_link?.includes("youtube")) {
           await deleteFromS3(existingPage.video_section_link);
         }
         videoSectionUrl = await uploadToS3(req.files["video_section"][0], folder);
-        fs.unlinkSync(req.files["video_section"][0].path);
+        safeUnlink(req.files["video_section"][0].path);
       }
 
       let planDocumentUrl = existingPage?.plan_document_url || null;
       if (req.files?.["plan_document"]) {
         if (existingPage?.plan_document_url) await deleteFromS3(existingPage.plan_document_url);
         planDocumentUrl = await uploadToS3(req.files["plan_document"][0], folder);
-        fs.unlinkSync(req.files["plan_document"][0].path);
+        safeUnlink(req.files["plan_document"][0].path);
       }
 
+      // If update_type is plan_document_only, only update the plan document
+      if (update_type === "plan_document_only") {
+        if (!existingPage) {
+          const pageData = { tenant_id: tenantId, plan_document_url: planDocumentUrl };
+          const result = await db.insert("tbl_opportunity_page", pageData);
+          return res.status(201).json({ message: "Plan document created", page_id: result.insert_id });
+        }
+        await db.update(
+          "tbl_opportunity_page",
+          { plan_document_url: planDocumentUrl },
+          `tenant_id = ${tenantId}`
+        );
+        return res.status(200).json({ message: "Plan document updated" });
+      }
+
+      // Full page update or creation
       const pageData = {
         tenant_id: tenantId,
         banner_image_url: bannerImageUrl,
-        banner_content: banner_content || null,
-        welcome_message: welcome_message || null,
-        page_content: page_content || null,
+        banner_content: banner_content || existingPage?.banner_content || null,
+        welcome_message: welcome_message || existingPage?.welcome_message || null,
+        page_content: page_content || existingPage?.page_content || null,
         page_image_url: pageImageUrl,
-        header_title: header_title || "NHT Global Compensation Plan",
+        header_title: header_title || existingPage?.header_title || "NHT Global Compensation Plan",
         video_section_link: videoSectionUrl,
         plan_document_url: planDocumentUrl,
       };
@@ -136,133 +165,16 @@ const GetOpportunityPage = async (req, res) => {
   }
 
   try {
-    const page = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+    const result = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+    const page = Array.isArray(result) ? result[0] : result || null;
     if (!page) {
-      return res.status(404).json({ error: "NOT_FOUND", message: "Opportunity page not found" });
+      return res.status(200).json({});
     }
-    res.json(page);
+    res.status(200).json(page);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Server error" });
   }
-};
-
-// Update Opportunity Page
-const UpdateOpportunityPage = async (req, res) => {
-  upload(req, res, async (err) => {
-    if (err) return res.status(400).json({ error: "FILE_ERROR", message: err.message });
-
-    const { tenantId } = req.params;
-    const { banner_content, welcome_message, page_content, header_title, video_section_link, update_type } = req.body;
-
-    if (!checkTenantAuth(req, tenantId)) {
-      return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
-    }
-
-    try {
-      const folder = `opportunity/tenant_${tenantId}`;
-      const existingPage = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
-      if (!existingPage) {
-        return res.status(404).json({ error: "NOT_FOUND", message: "Opportunity page not found" });
-      }
-
-
-      // If we're only updating the plan document, handle that case specifically
-      if (update_type === "plan_document_only") {
-        let planDocumentUrl = existingPage.plan_document_url;
-        if (req.files["plan_document"]) {
-          if (existingPage.plan_document_url) {
-            await deleteFromS3(existingPage.plan_document_url);
-          }
-          planDocumentUrl = await uploadToS3(req.files["plan_document"][0], folder);
-          const tempFilePath = req.files["plan_document"][0].path;
-          if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-        }
-
-        await db.update(
-          "tbl_opportunity_page", 
-          { plan_document_url: planDocumentUrl }, 
-          `tenant_id = ${tenantId}`
-        );
-        return res.json({ message: "Plan document updated" });
-      }
-
-
-      // Initialize update data with existing values
-      const updateData = {
-        banner_image_url: existingPage.banner_image_url,
-        banner_content: existingPage.banner_content,
-        welcome_message: existingPage.welcome_message,
-        page_content: existingPage.page_content,
-        page_image_url: existingPage.page_image_url,
-        header_title: existingPage.header_title || "NHT Global Compensation Plan",
-        video_section_link: existingPage.video_section_link,
-        plan_document_url: existingPage.plan_document_url,
-      };
-
-      // Only update fields that are explicitly included in the request
-      
-      // Handle banner image
-      if (req.files["banner_image"]) {
-        if (existingPage.banner_image_url) {
-          await deleteFromS3(existingPage.banner_image_url);
-        }
-        updateData.banner_image_url = await uploadToS3(req.files["banner_image"][0], folder);
-        const tempFilePath = req.files["banner_image"][0].path;
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      }
-
-      // Handle page image
-      if (req.files["page_image"]) {
-        if (existingPage.page_image_url) {
-          await deleteFromS3(existingPage.page_image_url);
-        }
-        updateData.page_image_url = await uploadToS3(req.files["page_image"][0], folder);
-        const tempFilePath = req.files["page_image"][0].path;
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      }
-
-      // Handle video
-      if (video_section_link !== undefined) {
-        if (video_section_link !== "") {
-          // Update with new YouTube link
-          updateData.video_section_link = video_section_link;
-        }
-        // If empty string sent, keep existing video (do nothing)
-      }
-      
-      if (req.files["video_section"]) {
-        if (existingPage.video_section_link && !existingPage.video_section_link.includes("youtube")) {
-          await deleteFromS3(existingPage.video_section_link);
-        }
-        updateData.video_section_link = await uploadToS3(req.files["video_section"][0], folder);
-        const tempFilePath = req.files["video_section"][0].path;
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      }
-
-      // Handle plan document
-      if (req.files["plan_document"]) {
-        if (existingPage.plan_document_url) {
-          await deleteFromS3(existingPage.plan_document_url);
-        }
-        updateData.plan_document_url = await uploadToS3(req.files["plan_document"][0], folder);
-        const tempFilePath = req.files["plan_document"][0].path;
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      }
-
-      // Update text content if provided
-      if (banner_content !== undefined) updateData.banner_content = banner_content;
-      if (welcome_message !== undefined) updateData.welcome_message = welcome_message;
-      if (page_content !== undefined) updateData.page_content = page_content;
-      if (header_title !== undefined) updateData.header_title = header_title;
-
-      await db.update("tbl_opportunity_page", updateData, `tenant_id = ${tenantId}`);
-      res.json({ message: "Opportunity page updated" });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "SERVER_ERROR", message: "Server error" });
-    }
-  });
 };
 
 // Delete Opportunity Page
@@ -273,9 +185,10 @@ const DeleteOpportunityPage = async (req, res) => {
   }
 
   try {
-    const page = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+    const result = await db.select("tbl_opportunity_page", "*", `tenant_id = ${tenantId}`);
+    const page = Array.isArray(result) ? result[0] : result || null;
     if (!page) {
-      return res.status(404).json({ error: "NOT_FOUND", message: "Opportunity page not found" });
+      return res.status(200).json({ message: "No opportunity page to delete" });
     }
 
     const filesToDelete = [
@@ -290,7 +203,7 @@ const DeleteOpportunityPage = async (req, res) => {
     }
 
     await db.delete("tbl_opportunity_page", `tenant_id = ${tenantId}`);
-    res.json({ message: "Opportunity page deleted" });
+    res.status(200).json({ message: "Opportunity page deleted" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Server error" });
@@ -298,8 +211,7 @@ const DeleteOpportunityPage = async (req, res) => {
 };
 
 module.exports = {
-  AddOpportunityPage,
+  AddOrUpdateOpportunityPage,
   GetOpportunityPage,
-  UpdateOpportunityPage,
   DeleteOpportunityPage,
 };

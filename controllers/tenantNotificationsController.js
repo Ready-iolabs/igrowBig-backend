@@ -4,21 +4,23 @@ const { checkTenantAuth } = require("../middleware/authMiddleware");
 // Get Tenant Notifications
 const GetTenantNotifications = async (req, res) => {
   try {
-
     console.log("===== DEBUGGING START =====");
     console.log("Request Headers:", req.headers);
     console.log("Request Params:", req.params);
-    console.log("Request Body:", req.body);
-    console.log("Extracted User:", req.user);
+    console.log("Request User:", req.user);
 
-    const { tenantId } = req.params;
+    const tenantId = req.user.tenant_id; // Extract tenantId from JWT payload
 
-    // Check if user is authenticated
+    // Check if tenantId exists
+    if (!tenantId) {
+      return res.status(400).json({ error: "BAD_REQUEST", message: "Tenant ID is missing from user data" });
+    }
+
+    // Check if user is authenticated for the tenant
     if (!checkTenantAuth(req, tenantId)) {
       return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
     }
 
-    
     console.log("Fetching notifications for tenantId:", tenantId);
 
     // Fetch notifications with read status
@@ -68,68 +70,18 @@ const GetTenantNotifications = async (req, res) => {
   }
 };
 
-// Mark Notification as Read
-const MarkNotificationRead = async (req, res) => {
-  try {
-    const { tenantId } = req.params;
-
-    // Check if user is authenticated
-    if (!checkTenantAuth(req, tenantId)) {
-      return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
-    }
-
-    const { notificationId } = req.body;
-
-    if (!notificationId) {
-      return res.status(400).json({
-        error: "BAD_REQUEST",
-        message: "Notification ID is required",
-      });
-    }
-
-    // Check if notification exists and is sent
-    const notification = await db.select(
-      "tbl_admin_notifications",
-      "*",
-      `id = ${notificationId} AND status = 'sent'`
-    );
-
-    if (!notification) {
-      return res.status(404).json({
-        error: "NOT_FOUND",
-        message: "Notification not found or not sent",
-      });
-    }
-
-    // Insert or update read status
-    await db.query(
-      `
-      INSERT IGNORE INTO tbl_notification_reads (tenant_id, notification_id, read_at)
-      VALUES (?, ?, NOW())
-      `,
-      [tenantId, notificationId]
-    );
-
-    res.status(200).json({
-      message: "Notification marked as read",
-      notificationId,
-    });
-  } catch (error) {
-    console.error("MarkNotificationRead Error:", error);
-    res.status(500).json({
-      error: "SERVER_ERROR",
-      message: "Failed to mark notification as read",
-      details: error.message,
-    });
-  }
-};
-
 // Get Single Notification
 const GetNotification = async (req, res) => {
   try {
-    const { tenantId, notificationId } = req.params;
+    const { notificationId } = req.params;
+    const tenantId = req.user.tenant_id; // Extract tenantId from JWT payload
 
-    // Check if user is authenticated
+    // Check if tenantId exists
+    if (!tenantId) {
+      return res.status(400).json({ error: "BAD_REQUEST", message: "Tenant ID is missing from user data" });
+    }
+
+    // Check if user is authenticated for the tenant
     if (!checkTenantAuth(req, tenantId)) {
       return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
     }
@@ -179,12 +131,76 @@ const GetNotification = async (req, res) => {
   }
 };
 
+// Mark Notification as Read
+const MarkNotificationRead = async (req, res) => {
+  try {
+    const { notificationId } = req.body;
+    const tenantId = req.user.tenant_id; // Extract tenantId from JWT payload
+
+    // Check if tenantId and notificationId exist
+    if (!tenantId || !notificationId) {
+      return res.status(400).json({
+        error: "BAD_REQUEST",
+        message: "Tenant ID and Notification ID are required",
+      });
+    }
+
+    // Check if user is authenticated for the tenant
+    if (!checkTenantAuth(req, tenantId)) {
+      return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
+    }
+
+    // Check if notification exists and is sent
+    const notification = await db.select(
+      "tbl_admin_notifications",
+      "*",
+      `id = ${notificationId} AND status = 'sent'`
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        error: "NOT_FOUND",
+        message: "Notification not found or not sent",
+      });
+    }
+
+    // Insert or update read status
+    await db.query(
+      `
+      INSERT IGNORE INTO tbl_notification_reads (tenant_id, notification_id, read_at)
+      VALUES (?, ?, NOW())
+      `,
+      [tenantId, notificationId]
+    );
+
+    res.status(200).json({
+      message: "Notification marked as read",
+      notificationId,
+    });
+  } catch (error) {
+    console.error("MarkNotificationRead Error:", error);
+    res.status(500).json({
+      error: "SERVER_ERROR",
+      message: "Failed to mark notification as read",
+      details: error.message,
+    });
+  }
+};
+
 // Mark All Notifications as Read
 const MarkAllNotificationsRead = async (req, res) => {
   try {
-    const { tenantId } = req.params;
+    const tenantId = req.user.tenant_id; // Extract tenantId from JWT payload
 
-    // Check if user is authenticated
+    // Check if tenantId exists
+    if (!tenantId) {
+      return res.status(400).json({
+        error: "BAD_REQUEST",
+        message: "Tenant ID is missing from user data",
+      });
+    }
+
+    // Check if user is authenticated for the tenant
     if (!checkTenantAuth(req, tenantId)) {
       return res.status(403).json({ error: "UNAUTHORIZED", message: "Unauthorized" });
     }
@@ -192,46 +208,46 @@ const MarkAllNotificationsRead = async (req, res) => {
     // Get all unread notifications
     const unreadNotifications = await db.queryAll(
       `
-        SELECT n.id 
-        FROM tbl_admin_notifications n
-        LEFT JOIN tbl_notification_reads r 
-          ON n.id = r.notification_id 
-          AND r.tenant_id = ?
-        WHERE n.status = 'sent' AND r.read_at IS NULL
+      SELECT n.id 
+      FROM tbl_admin_notifications n
+      LEFT JOIN tbl_notification_reads r 
+        ON n.id = r.notification_id 
+        AND r.tenant_id = ?
+      WHERE n.status = 'sent' AND r.read_at IS NULL
+      `,
+      [tenantId]
+    );
+
+    if (!unreadNotifications || unreadNotifications.length === 0) {
+      return res.status(200).json({
+        message: "No unread notifications found",
+        count: 0,
+      });
+    }
+
+    // Mark all as read
+    for (const notification of unreadNotifications) {
+      await db.query(
+        `
+        INSERT IGNORE INTO tbl_notification_reads (tenant_id, notification_id, read_at)
+        VALUES (?, ?, NOW())
         `,
-        [tenantId]
-     );
+        [tenantId, notification.id]
+      );
+    }
 
-     if (!unreadNotifications || unreadNotifications.length === 0) {
-       return res.status(200).json({
-         message: "No unread notifications found",
-         count: 0,
-       });
-     }
-
-     // Mark all as read
-     for (const notification of unreadNotifications) {
-       await db.query(
-         `
-         INSERT IGNORE INTO tbl_notification_reads (tenant_id, notification_id, read_at)
-         VALUES (?, ?, NOW())
-         `,
-         [tenantId, notification.id]
-       );
-     }
-
-     res.status(200).json({
-       message: "All notifications marked as read",
-       count: unreadNotifications.length,
-     });
-   } catch (error) {
-     console.error("MarkAllNotificationsRead Error:", error);
-     res.status(500).json({
-       error: "SERVER_ERROR",
-       message: "Failed to mark all notifications as read",
-       details: error.message,
-     });
-   }
+    res.status(200).json({
+      message: "All notifications marked as read",
+      count: unreadNotifications.length,
+    });
+  } catch (error) {
+    console.error("MarkAllNotificationsRead Error:", error);
+    res.status(500).json({
+      error: "SERVER_ERROR",
+      message: "Failed to mark all notifications as read",
+      details: error.message,
+    });
+  }
 };
 
 module.exports = {

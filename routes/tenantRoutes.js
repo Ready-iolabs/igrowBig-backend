@@ -20,16 +20,19 @@ const {
   DeleteProductPage,
 } = require("../controllers/productPageController");
 const {
-  AddOpportunityPage,
+  AddOrUpdateOpportunityPage,
   GetOpportunityPage,
-  UpdateOpportunityPage,
   DeleteOpportunityPage,
 } = require("../controllers/opportunityPageController");
+
+
+
 const {
-  AddJoinUsPage,
+
   GetJoinUsPage,
-  UpdateJoinUsPage,
+ 
   DeleteJoinUsPage,
+  AddOrUpdateJoinUsPage,
 } = require("../controllers/joinusPageController");
 
 const {
@@ -62,20 +65,8 @@ const {
   AddBlogBanner,
   UpdateBlogBanner,
   DeleteBlogBanner,
-  
 } = require("../controllers/blogController");
-const {
-  AddBanner,
-  GetBanners,
-  UpdateBanner,
-  DeleteBanner,
-} = require("../controllers/bannerController");
 
-
-const {
-  UpdateSiteInfo,
-  GetSiteInfo,
-} = require("../controllers/siteInfoController");
 const {
   UpdateAboutProductPage,
   GetAboutProductPage,
@@ -97,17 +88,24 @@ const {
   UpdateSettings,
   GetSettings,
 } = require("../controllers/settingsController");
-const { GetTenantNotifications,
+const {
+  GetTenantNotifications,
   GetNotification,
   MarkNotificationRead,
-  MarkAllNotificationsRead } = require("../controllers/tenantNotificationsController");
-const { body } = require("express-validator");
+  MarkAllNotificationsRead,
+} = require("../controllers/tenantNotificationsController");
 
+const { GetTenantTrainings } = require("../controllers/GetTenantTrainings");
+const {
+  AddSubscriber,
+  GetSubscribers,
+  UpdateSubscriber,
+  DeleteSubscriber,
+} = require("../controllers/TenantSubscriberController");
 
 // Core Tenant Routes
 router.get("/:tenantId", authenticateUser, GetTenant);
 router.put("/:tenantId", authenticateUser, UpdateTenant);
-
 
 //product page routes
 router.post("/:tenantId/product-page", authenticateUser, AddProductPage);
@@ -115,17 +113,21 @@ router.get("/:tenantId/product-page", authenticateUser, GetProductPage);
 router.put("/:tenantId/product-page", authenticateUser, UpdateProductPage);
 router.delete("/:tenantId/product-page", authenticateUser, DeleteProductPage);
 
-//opportunity page routes
+// Opportunity page routes
 router.post(
   "/:tenantId/opportunity-page",
   authenticateUser,
-  AddOpportunityPage
+  AddOrUpdateOpportunityPage
 );
-router.get("/:tenantId/opportunity-page", authenticateUser, GetOpportunityPage);
+router.get(
+  "/:tenantId/opportunity-page",
+  authenticateUser,
+  GetOpportunityPage
+);
 router.put(
   "/:tenantId/opportunity-page",
   authenticateUser,
-  UpdateOpportunityPage
+  AddOrUpdateOpportunityPage
 );
 router.delete(
   "/:tenantId/opportunity-page",
@@ -134,9 +136,8 @@ router.delete(
 );
 
 //join us page routes
-router.post("/:tenantId/joinus-page", authenticateUser, AddJoinUsPage);
+router.post("/:tenantId/joinus-page", authenticateUser, AddOrUpdateJoinUsPage);
 router.get("/:tenantId/joinus-page", authenticateUser, GetJoinUsPage);
-router.put("/:tenantId/joinus-page", authenticateUser, UpdateJoinUsPage);
 router.delete("/:tenantId/joinus-page", authenticateUser, DeleteJoinUsPage);
 
 //contact us page route
@@ -149,7 +150,11 @@ router.delete("/:tenantId/contactus/:id", authenticateUser, DeleteContactUs);
 router.post("/:tenantId/products", authenticateUser, AddProduct);
 router.get("/:tenantId/products", authenticateUser, GetProducts);
 router.put("/:tenantId/products/:productId", authenticateUser, UpdateProduct);
-router.delete("/:tenantId/products/:productId", authenticateUser, DeleteProduct);
+router.delete(
+  "/:tenantId/products/:productId",
+  authenticateUser,
+  DeleteProduct
+);
 router.delete(
   "/:tenantId/products/:productId/images/:imageId",
   authenticateUser,
@@ -177,30 +182,47 @@ router.get("/:tenantId/blogs", authenticateUser, GetBlogs);
 router.put("/:tenantId/blogs/:blogId", authenticateUser, UpdateBlog);
 router.delete("/:tenantId/blogs/:blogId", authenticateUser, DeleteBlog);
 
-router.post("/:tenantId/blogs/:blogId/banners", authenticateUser, AddBlogBanner);
-router.put("/:tenantId/blogs/:blogId/banners/:bannerId", authenticateUser, UpdateBlogBanner);
-router.delete("/:tenantId/blogs/:blogId/banners/:bannerId", authenticateUser, DeleteBlogBanner);// Add or update a banner for a blog
-
-// Banner Routes
-router.post("/:tenantId/banners", authenticateUser, AddBanner);
-router.get("/:tenantId/banners", authenticateUser, GetBanners);
-router.put("/:tenantId/banners/:bannerId", authenticateUser, UpdateBanner);
-router.delete("/:tenantId/banners/:bannerId", authenticateUser, DeleteBanner);
-
-
+router.post(
+  "/:tenantId/blogs/:blogId/banners",
+  authenticateUser,
+  AddBlogBanner
+);
+router.put(
+  "/:tenantId/blogs/:blogId/banners/:bannerId",
+  authenticateUser,
+  UpdateBlogBanner
+);
+router.delete(
+  "/:tenantId/blogs/:blogId/banners/:bannerId",
+  authenticateUser,
+  DeleteBlogBanner
+); // Add or update a banner for a blog
 
 // Footer Social Links Routes
-router.get("/:tenantId/footer/social-links",authenticateUser, GetSocialLinks); 
-router.post("/:tenantId/footer/social-links",authenticateUser, UpsertSocialLinks); 
-router.delete("/:tenantId/footer/social-links",authenticateUser, DeleteSocialLinks); 
+router.get("/:tenantId/footer/social-links", authenticateUser, GetSocialLinks);
+router.post(
+  "/:tenantId/footer/social-links",
+  authenticateUser,
+  UpsertSocialLinks
+);
+router.delete(
+  "/:tenantId/footer/social-links",
+  authenticateUser,
+  DeleteSocialLinks
+);
 
 // Footer Disclaimers Routes
-router.get("/:tenantId/footer/disclaimers",authenticateUser, GetDisclaimers); 
-router.post("/:tenantId/footer/disclaimers",authenticateUser, UpsertDisclaimers); 
-router.delete("/:tenantId/footer/disclaimers",authenticateUser, DeleteDisclaimers); 
-
-
-
+router.get("/:tenantId/footer/disclaimers", authenticateUser, GetDisclaimers);
+router.post(
+  "/:tenantId/footer/disclaimers",
+  authenticateUser,
+  UpsertDisclaimers
+);
+router.delete(
+  "/:tenantId/footer/disclaimers",
+  authenticateUser,
+  DeleteDisclaimers
+);
 
 // About Product Page Routes
 router.put(
@@ -213,8 +235,6 @@ router.get(
   authenticateUser,
   GetAboutProductPage
 );
-
-
 
 // Home Page Routes
 router.post("/:tenantId/home-page", authenticateUser, AddHomePage);
@@ -240,34 +260,25 @@ router.post("/:tenantId/settings", authenticateUser, AddSettings);
 router.put("/:tenantId/settings", authenticateUser, UpdateSettings);
 router.get("/:tenantId/settings", authenticateUser, GetSettings);
 
-// Site Info Routes
-router.put("/:tenantId/site-info", authenticateUser, UpdateSiteInfo);
-router.get("/:tenantId/site-info", authenticateUser, GetSiteInfo);
-
-
+//GetTraining
+router.get("/:tenantId/trainings", authenticateUser, GetTenantTrainings);
 
 // Get all notifications for authenticated tenant
-router.get("/:tenantId/notifications", GetTenantNotifications);
-
+router.get("/:tenantId/notifications", authenticateUser, GetTenantNotifications);
 
 // Get specific notification
-router.get(
-  "/notifications/:notificationId", 
-  authenticateUser, 
-  GetNotification
-);
+router.get("/:tenantId/notifications/:notificationId", authenticateUser, GetNotification);
 
 // Mark a notification as read
-router.post(
-  "/notifications/read",
-  MarkNotificationRead
-);
+router.post("/:tenantId/notifications/read", authenticateUser, MarkNotificationRead);
 
 // Mark all notifications as read
-router.post(
-  "/notifications/read-all",
-  authenticateUser,
-  MarkAllNotificationsRead
-);
+router.post("/:tenantId/notifications/read-all", authenticateUser, MarkAllNotificationsRead);
+
+//TenantSubscriber
+
+router.post("/:tenantId/subscribers", authenticateUser, AddSubscriber);
+router.get("/:tenantId/subscribers", authenticateUser, GetSubscribers);
+
 
 module.exports = router;

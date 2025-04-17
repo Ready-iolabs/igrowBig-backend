@@ -363,52 +363,31 @@ const AdminchangePassword = async (req, res) => {
 const CreateUser = [
   body("email").isEmail().withMessage("Please enter a valid email address"),
   body("name").notEmpty().withMessage("Name is required"),
-  body("template_id")
-    .isInt({ min: 1, max: 3 })
-    .withMessage("Template ID must be between 1 and 3")
-    .optional(),
+  body("template_id").isInt({ min: 1, max: 3 }).withMessage("Template ID must be between 1 and 3").optional(),
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
       const { name, email, template_id = 1 } = req.body;
       const normalizedEmail = email.trim().toLowerCase();
 
-      // Check if email exists
-      const existingUser = await db.selectAll(
-        "tbl_users",
-        "*",
-        "email = ?",
-        [normalizedEmail]
-      );
+      const existingUser = await db.selectAll("tbl_users", "*", "email = ?", [normalizedEmail]);
       if (existingUser.length > 0) {
-        return res.status(400).json({
-          error: "EMAIL_EXISTS",
-          message: "Email already exists",
-        });
+        return res.status(400).json({ error: "EMAIL_EXISTS", message: "Email already exists" });
       }
 
-      // Generate unique slug
       let baseSlug = slugify(name, { lower: true, strict: true });
       let slug = baseSlug;
       let slugCount = 0;
 
       while (true) {
-        const slugExists = await db.selectAll(
-          "tbl_tenants",
-          "id",
-          "slug = ?",
-          [slug]
-        );
+        const slugExists = await db.selectAll("tbl_tenants", "id", "slug = ?", [slug]);
         if (slugExists.length === 0) break;
         slugCount++;
         slug = `${baseSlug}-${slugCount}`;
       }
 
-      // Generate password
       const generatedPassword = generator.generate({
         length: 10,
         numbers: true,
@@ -418,12 +397,11 @@ const CreateUser = [
       });
       const hashedPassword = await bcrypt.hash(generatedPassword, 10);
 
-      // Insert tenant
       const tenantData = {
         store_name: `${name}'s Store`,
         template_id,
         user_id: null,
-        domain: `${slug}.localhost`, // Use localhost for development
+        domain: `${slug}.example.com`,
         site_title: `${name}'s Site`,
         site_description: `Store for ${name}`,
         is_live: 0,
@@ -433,7 +411,6 @@ const CreateUser = [
       const tenantResult = await db.insert("tbl_tenants", tenantData);
       const tenantId = tenantResult.insert_id;
 
-      // Insert user
       const userData = {
         name,
         email: normalizedEmail,
@@ -446,16 +423,14 @@ const CreateUser = [
       const userResult = await db.insert("tbl_users", userData);
       const userId = userResult.insert_id;
 
-      // Update tenant with user_id
       await db.update("tbl_tenants", { user_id: userId }, "id = ?", [tenantId]);
 
-      // Insert settings
       const settingsData = {
         tenant_id: tenantId,
-        domain_type: "path", // Use path-based routing for simplicity
+        domain_type: "sub_domain",
         sub_domain: slug,
-        primary_domain_name: "localhost:5173", // Update for production
-        website_link: `http://localhost:5173/${slug}`,
+        primary_domain_name: "example.com",
+        website_link: `http://${slug}.example.com:5173`,
         first_name: name.split(" ")[0] || name,
         last_name: name.split(" ")[1] || "",
         email_id: normalizedEmail,
@@ -474,14 +449,13 @@ const CreateUser = [
       };
       await db.insert("tbl_settings", settingsData);
 
-      // Send welcome email
       await sendWelcomeEmail(normalizedEmail, {
         name,
         email: normalizedEmail,
         password: generatedPassword,
         template_id,
         login_url: "http://localhost:5173/backoffice-login",
-        store_url: `http://localhost:5173/${slug}`,
+        store_url: `http://${slug}.example.com:5173`,
         subscription_status: "Active",
         subscription_plan: "monthly",
       });
@@ -493,14 +467,14 @@ const CreateUser = [
         template_id,
         email: normalizedEmail,
         name,
-        store_url: `http://localhost:5173/${slug}`,
+        store_url: `http://${slug}.example.com:5173`,
       });
     } catch (error) {
       console.error("CreateUser Error:", error);
       res.status(500).json({ error: "SERVER_ERROR", message: error.message });
     }
   },
-];;
+];
 
 
 const GetTenantSettings = [
@@ -1372,7 +1346,7 @@ const GetAllTrainings = [
   },
 ];
 
-
+// Update Training
 // Update Training
 const UpdateTraining = [
   trainingUpload,
